@@ -1,0 +1,14 @@
+# 생성물 (python build.py 로 다시 만든다)
+out/
+server/kb.json
+# 비밀 정보와 실행 기록
+.env
+server/.env
+server/logs/
+server/bot_config.json
+# 시험 산출물
+tests/shots/
+__pycache__/
+*.pyc
+node_modules/
+.DS_Store
