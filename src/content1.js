@@ -34,13 +34,21 @@ var ASSIGNMENTS = [
   {n:'과제 3', steps:'08 ~ 09', out:'복합 요청을 분해·검증·실행하는 Planner–Worker 통합 시스템'}
 ];
 
+/* LLM 제공자별 .env 변수 이름. 가이드의 키·모델 안내는 모두 이 표를 쓴다.
+   Gemini는 핸즈온 코드의 값이다. OpenAI 이름은 핸즈온 코드가 정해지기 전의 임시값이므로
+   확인이 필요하다. 코드와 맞춘 뒤에는 이 표만 고친다. */
+var LLM = {
+  gemini: {name:'Gemini', key:'GEMINI_API_KEY', model:'GEMINI_MODEL'},
+  openai: {name:'OpenAI', key:'OPENAI_API_KEY', model:'OPENAI_MODEL'}
+};
+
 /* 사전 준비 */
 var PREWORK = {
   env: [
     {id:'pw-env-1', t:'Python 3.10 이상과 VS Code를 준비한다', d:'설치 권한이 없으면 담당자에게 문의한다. 대체 환경(Google Colab, GitHub Codespaces)은 인터넷 연결이 필요하다.'},
     {id:'pw-env-2', t:'실습 폴더를 VS Code로 열고 가상환경을 만든다', d:'Windows: python -m venv .venv 후 .venv\\Scripts\\activate / macOS·Linux: python3 -m venv .venv 후 source .venv/bin/activate. 활성화되면 터미널 줄 앞에 (.venv)가 보인다.', cmd:[['Windows','python -m venv .venv\n.venv\\Scripts\\activate'],['macOS / Linux','python3 -m venv .venv\nsource .venv/bin/activate']]},
     {id:'pw-env-3', t:'필수 패키지를 설치한다', d:'requirements.txt에 고정된 버전으로만 설치한다. 인터넷의 구버전 예제와 섞지 않는다.', cmd:[['공통','pip install -r requirements.txt']]},
-    {id:'pw-env-4', t:'.env.example을 .env로 복사하고 API 키를 넣는다', d:'GEMINI_API_KEY= 뒤에 교육기관이 발급한 키를 붙여넣는다. 따옴표와 공백은 넣지 않는다. .env는 다른 사람에게 보내거나 공유 폴더에 올리지 않는다.', cmd:[['Windows','copy .env.example .env'],['macOS / Linux','cp .env.example .env']]},
+    {id:'pw-env-4', t:'.env.example을 .env로 복사하고 API 키를 넣는다', d:LLM.gemini.key+'= 뒤에 교육기관이 발급한 키를 붙여넣는다. OpenAI 키를 쓰는 경우에는 '+LLM.openai.key+'= 뒤에 넣고 모델은 '+LLM.openai.model+'로 맞춘다 (변수 이름과 제공자를 고르는 방법은 핸즈온 코드와 맞춰야 하므로 확인이 필요하다). 따옴표와 공백은 넣지 않는다. .env는 다른 사람에게 보내거나 공유 폴더에 올리지 않는다.', cmd:[['Windows','copy .env.example .env'],['macOS / Linux','cp .env.example .env']]},
     {id:'pw-env-5', t:'python check_env.py를 실행해 모두 [OK]인지 확인한다', d:'모두 [OK]이면 --ping으로 키가 실제로 통신하는지 한 번 더 확인한다. [확인 필요]가 있으면 아래 \'check_env 결과 읽기\'를 본다.', cmd:[['공통','python check_env.py\npython check_env.py --ping']]}
   ],
   diag: [
@@ -64,14 +72,14 @@ var PREWORK = {
     ['[확인 필요] (패키지명) 설치','가상환경이 켜져 있는지 보고 pip install -r requirements.txt를 다시 실행한다.','env_pkg'],
     ['[확인 필요] import langchain.agents 등','패키지 버전이 requirements.txt와 다르다. 같은 명령으로 다시 설치한다.','env_import_create_agent'],
     ['[확인 필요] .env 파일 존재','.env.example을 복사해 .env를 만든다.','env_cfg_sys'],
-    ['[확인 필요] GEMINI_API_KEY 설정','.env의 GEMINI_API_KEY= 뒤에 키를 넣는다. 따옴표와 공백을 넣지 않는다.','env_key'],
+    ['[확인 필요] '+LLM.gemini.key+' 설정','.env의 '+LLM.gemini.key+'= 뒤에 키를 넣는다. OpenAI를 쓰면 '+LLM.openai.key+'= 뒤에 넣는다. 따옴표와 공백을 넣지 않는다.','env_key'],
     ['[확인 필요] data/*.json','실습 폴더 전체가 복사되었는지, 폴더를 VS Code 최상위로 열었는지 확인한다.','path_config'],
-    ['[확인 필요] Gemini 호출 (404)','.env의 GEMINI_MODEL을 강사가 알려 준 모델 이름으로 바꾼다.','env_model404'],
-    ['[확인 필요] Gemini 호출 (429)','잠시 뒤 다시 해 보고, 계속되면 도움을 요청한다.','env_429']
+    ['[확인 필요] LLM 호출 (404)','.env의 '+LLM.gemini.model+'(OpenAI는 '+LLM.openai.model+')을 강사가 알려 준 모델 이름으로 바꾼다.','env_model404'],
+    ['[확인 필요] LLM 호출 (429)','잠시 뒤 다시 해 보고, 계속되면 도움을 요청한다.','env_429']
   ],
   fallback: [
     ['설치 권한이 없다','Google Colab 또는 GitHub Codespaces를 쓸 수 있다. 인터넷 연결이 필요하므로, 교육장 네트워크 상황을 강사에게 먼저 확인한다.'],
-    ['인터넷 없이 실습해야 한다','LLM_MODE=replay로 단계 06~09는 키와 네트워크 없이 실행할 수 있다. 단계 02~05는 실제 Gemini 호출이 필요해 실행할 수 없으므로 강사의 시연과 가이드의 기대 출력으로 따라간다.'],
+    ['인터넷 없이 실습해야 한다','LLM_MODE=replay로 단계 06~09는 키와 네트워크 없이 실행할 수 있다. 단계 02~05는 실제 LLM 호출이 필요해 실행할 수 없으므로 강사의 시연과 가이드의 기대 출력으로 따라간다.'],
     ['키를 아직 받지 못했다','replay로 단계 06~09를 먼저 진행할 수 있다. 02~05는 키가 있어야 한다. 도움 요청 카드로 강사에게 알린다.']
   ]
 };
@@ -82,7 +90,7 @@ var START = {
     {id:'st-1', t:'가상환경이 켜져 있다 ((.venv) 표시)'},
     {id:'st-2', t:'python check_env.py 결과가 모두 [OK]다'},
     {id:'st-3', t:'python check_env.py --ping 결과가 [OK]다 (단계 02 이후 필요)'},
-    {id:'st-4', t:'.env의 GEMINI_MODEL을 강사가 안내한 이름으로 맞췄다'},
+    {id:'st-4', t:'.env의 모델 이름('+LLM.gemini.model+', OpenAI는 '+LLM.openai.model+')을 강사가 안내한 이름으로 맞췄다'},
     {id:'st-5', t:'.env 파일을 화면에 띄우거나 다른 사람에게 보내지 않기로 했다'},
     {id:'st-6', t:'이 가이드와 터미널·에디터를 한 화면에 나란히 둘 수 있게 창을 정리했다'},
     {id:'st-7', t:'상태 표시(상단 색 띠) 규칙과 스티커 신호를 이해했다'}

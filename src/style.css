@@ -232,6 +232,8 @@ svg.map .cap{font-size:13px;fill:var(--ink2)}
 #bot .bu{display:flex;justify-content:flex-end;margin:.4rem 0}#bot .bu .bb{background:var(--accent);color:var(--accent-ink);border-radius:12px 12px 2px 12px;padding:.4rem .7rem;max-width:88%;overflow-wrap:anywhere}
 #bot .ba{margin:.4rem 0;max-width:96%}#bot .ba .bb{background:var(--surface2);border-radius:12px 12px 12px 2px;padding:.5rem .7rem;overflow-wrap:anywhere}
 #bot .ba .bb.err{background:var(--warn-soft)}
+#bot .ba .bb.teacher{background:var(--accent);color:var(--accent-ink)}
+#bot .review-note{margin-top:.5rem;padding-top:.4rem;border-top:1px dashed var(--line,#bbb)}
 #bot .bmeta{margin:.15rem .3rem}
 #bot .sym{border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:0 .5rem;font-size:.8rem;font-family:var(--mono);margin:0 .1rem}
 #bot details.trace{margin:.25rem .2rem;font-size:.86rem}#bot details.trace summary{cursor:pointer;color:var(--ink2)}#bot details.trace ol{margin:.3rem 0;padding-left:1.2rem}

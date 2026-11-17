@@ -14,8 +14,9 @@ import json, os, time, threading, hashlib, secrets, socket
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from collections import defaultdict, Counter, deque
 from pathlib import Path
-import llm
-from agent import run_agent, mask
+from urllib.parse import urlparse, parse_qs
+import llm, review
+from agent import run_agent, mask, review_reasons
 from tools import STEP_BY
 
 HERE = Path(__file__).resolve().parent
@@ -43,13 +44,25 @@ _log_lock = threading.Lock()
 def log(rec):
     LOG_DIR.mkdir(exist_ok=True)
     with _log_lock, open(LOG_DIR / ('bot-%s.jsonl' % time.strftime('%Y%m%d')), 'a', encoding='utf-8') as f: f.write(json.dumps(rec, ensure_ascii=False) + '\n')
-def read_logs():
+def read_logs(day=None):
+    """day(YYYYMMDD)를 주면 그날 로그만, 비우면 전체를 읽는다."""
     out = []
-    for f in sorted(LOG_DIR.glob('bot-*.jsonl')) if LOG_DIR.exists() else []:
+    for f in sorted(LOG_DIR.glob('bot-%s.jsonl' % (day or '*'))) if LOG_DIR.exists() else []:
         for line in f.read_text(encoding='utf-8').splitlines():
             try: out.append(json.loads(line))
             except Exception: pass
     return out
+
+MIN_PEOPLE = 2   # 서로 다른 수강자가 이 인원 이상 물은 증상만 '공통 막힘'으로 본다
+def common_top(logs, step, n=3):
+    """같은 단계에서 증상별로 질문한 사람 수(cid 기준)를 센다. 한 명이 여러 번 물어도 1명이다.
+    질문 원문과 cid는 내보내지 않는다. 이 규칙은 프롬프트가 아니라 여기서 지킨다."""
+    who = defaultdict(set)
+    for r in logs:
+        if r.get('step') != step or not r.get('ok'): continue
+        for i in r.get('ids', []): who[i].add(r.get('cid'))
+    top = sorted(((i, len(c)) for i, c in who.items() if len(c) >= MIN_PEOPLE), key=lambda x: (-x[1], x[0]))[:n]
+    return [{'id': i, 'people': k} for i, k in top]
 
 class H(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
@@ -77,8 +90,18 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, (HERE / 'admin.html').read_bytes(), 'text/html; charset=utf-8')
         if path == '/api/health':
             c = llm.get_config(); return self._send(200, {'ok': True, 'provider': c['provider'], 'ready': c['provider'] == 'mock' or bool(llm.get_key(c['provider']))})
+        if path == '/api/common':
+            step = parse_qs(urlparse(self.path).query).get('step', [''])[0]
+            if step not in STEP_BY: return self._send(400, {'ok': False, 'msg': '알 수 없는 단계'})
+            return self._send(200, {'ok': True, 'step': step, 'min_people': MIN_PEOPLE, 'top': common_top(read_logs(time.strftime('%Y%m%d')), step)})
+        if path == '/api/inbox':   # 수강자가 자기 cid로 강사가 전달한 답을 가져간다
+            cid = parse_qs(urlparse(self.path).query).get('cid', [''])[0][:40]
+            return self._send(200, {'ok': True, 'items': review.inbox(cid) if cid else []})
         if path.startswith('/api/admin/'):
             if not self._admin(): return self._send(403, {'ok': False, 'msg': '권한이 없다'})
+            if path == '/api/admin/review':
+                st = parse_qs(urlparse(self.path).query).get('status', [''])[0]
+                return self._send(200, {'ok': True, 'items': review.listing(st if st in ('draft', 'delivered') else None)})
             if path == '/api/admin/config':
                 return self._send(200, {'ok': True, 'config': llm.get_config(), 'keys': {k: bool(llm.get_key(k)) for k in llm.ENV_KEY}, 'providers': list(llm.PROVIDERS)})
             if path == '/api/admin/stats':
@@ -96,6 +119,10 @@ class H(BaseHTTPRequestHandler):
             if path == '/api/admin/config':
                 if p.get('provider') is not None and p['provider'] not in llm.PROVIDERS: return self._send(400, {'ok': False, 'msg': '알 수 없는 제공자'})
                 llm.save_config(p); return self._send(200, {'ok': True})
+            if path == '/api/admin/review/deliver':
+                text = mask(str(p.get('text') or '').strip()[:2000])[0]
+                if not text: return self._send(400, {'ok': False, 'msg': '전달할 내용을 입력한다'})
+                return self._send(200, {'ok': True}) if review.deliver(str(p.get('id') or ''), text) else self._send(404, {'ok': False, 'msg': '없는 항목이다'})
             if path == '/api/admin/key':
                 prov, key = p.get('provider'), (p.get('key') or '').strip()
                 if prov not in llm.ENV_KEY: return self._send(400, {'ok': False, 'msg': '알 수 없는 제공자'})
@@ -131,8 +158,11 @@ class H(BaseHTTPRequestHandler):
         try: res = run_agent(cfg, q, state, p.get('history'))
         finally: sem.release()
         res['masked'] = res.get('masked', 0) + masked
+        why = review_reasons(state, q, res) if res.get('ok') else []
+        if why:   # 강사 검토 대상: 초안을 저장하고, 수강자에게는 답과 함께 '검토 전'임을 알린다
+            res['review'] = {'id': review.add_draft(cid, step, q, res['text'], why, stuck), 'labels': [review.LABEL[w] for w in why]}
         log({'ts': time.strftime('%H:%M:%S'), 'cid': hashlib.sha1(cid.encode()).hexdigest()[:6], 'step': step, 'q': q[:200], 'ids': res.get('ids', []),
-             'tools': [t['tool'] for t in res.get('trace', [])], 'mode': res.get('mode'), 'provider': res.get('provider'), 'ok': res.get('ok'), 'ms': int((time.time() - t0) * 1000), 'masked': res['masked']})
+             'tools': [t['tool'] for t in res.get('trace', [])], 'mode': res.get('mode'), 'provider': res.get('provider'), 'ok': res.get('ok'), 'ms': int((time.time() - t0) * 1000), 'masked': res['masked'], 'review': why})
         self._send(200, res)
 
 def lan_ip():

@@ -44,6 +44,16 @@ def decide_mode(state, q):
     if CONCEPT_RX.search(q): return 'explain'
     return 'hint'
 
+REVIEW_STUCK_MIN = 15
+def review_reasons(state, q, res):
+    """강사 검토가 필요한 이유를 코드로 판정한다 (프롬프트가 아니다).
+    long_stuck: 막힌 지 15분 이상 / env: 환경 문제 증상 / no_basis: 오류를 물었는데 가이드에 일치하는 증상이 없다."""
+    why, ids = [], res.get('ids', [])
+    if state.get('stuck_min', 0) >= REVIEW_STUCK_MIN: why.append('long_stuck')
+    if any(i.startswith(('env_', 'net_')) for i in ids): why.append('env')
+    if res.get('mode') == 'hint' and not ids and (ERR_RX.search(q) or state.get('tried')): why.append('no_basis')
+    return why
+
 def validate(text):
     """검증 단계: 키 문자열 제거, 15줄 넘는 코드 블록 제거(정답 통째 제공 방지)."""
     text, n = mask(text)

@@ -6,9 +6,11 @@ server/kb.json
 server/.env
 server/logs/
 server/bot_config.json
+server/review_queue.json
 # 시험 산출물
 tests/shots/
 __pycache__/
 *.pyc
 node_modules/
 .DS_Store
+.venv/

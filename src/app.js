@@ -119,7 +119,7 @@ function mapSVG(stepId){
   var hl = {}, hl2 = {}, cap = '';
   var all=['req','pl','va','p','o','s','sy','rs'];
   if(stepId==='01'||stepId==='09'){ all.forEach(function(k){hl2[k]=1;}); cap='오늘 만드는 전체 구조'; }
-  else if(['02','03','04','05'].indexOf(stepId)>=0){ hl.p=1; cap='단계 02~05 · Product Worker 내부 동작 원리: Gemini API → Function Calling → ReAct 루프 → LangChain create_agent'; }
+  else if(['02','03','04','05'].indexOf(stepId)>=0){ hl.p=1; cap='단계 02~05 · Product Worker 내부 동작 원리: LLM API → Function Calling → ReAct 루프 → LangChain create_agent'; }
   else if(stepId==='06'){ all.forEach(function(k){hl2[k]=1;}); cap='단계 06 · LangGraph StateGraph가 전체 상태(State), 조건부 분기, 실행 결과 누적을 제어한다'; }
   else if(stepId==='07'){ hl.p=1; hl.o=1; hl.s=1; cap='단계 07 · Worker 3개로 역할을 나눈다'; }
   else if(stepId==='08'){ hl.pl=1; hl.va=1; hl.sy=1; hl2.p=1; hl2.o=1; hl2.s=1; cap='단계 08 · Planner, 검증, Synthesizer를 만들어 Worker와 연결한다'; }
@@ -373,7 +373,7 @@ function viewStep(id){
   h+=timerHTML(st);
   h+='<div class="card">'+mapSVG(id)+'</div>';
   h+='<div class="callout key"><b>이 단계의 목표</b> '+E(st.goal)+'</div>';
-  if(st.mode.indexOf('live')===0) h+='<div class="callout warn">이 단계는 실제 Gemini 호출이 필요하다. 네트워크와 API 키가 필요하며 replay 모드로 대체할 수 없다. .env의 LLM_MODE는 live여야 한다.</div>';
+  if(st.mode.indexOf('live')===0) h+='<div class="callout warn">이 단계는 실제 LLM 호출이 필요하다. 네트워크와 API 키가 필요하며 replay 모드로 대체할 수 없다. .env의 LLM_MODE는 live여야 한다.</div>';
   if(st.precheck && st.precheck.length){ h+='<h2>사전 점검 (1~2분)</h2><div class="card">'+st.precheck.map(function(q,i){return '<p><b>'+(i+1)+'.</b> '+E(q)+'</p>'+ta('notes','pre|'+id+'|'+i,'한 줄로 적어 본다',2);}).join('')+'</div>'; }
   h+='<h2 id="s-concept">핵심 개념</h2>'+blocks(st.concept||[]);
   if(st.observe){ h+='<h3>완성본 시연 관찰</h3><div class="tw"><table><thead><tr><th>입력</th><th>관찰 포인트</th><th>내 답</th></tr></thead><tbody>'+st.observe.map(function(o,i){return '<tr><td>'+E(o[0])+'</td><td>'+E(o[1])+'</td><td>'+ta('notes','obs|'+id+'|'+i,'',2)+'</td></tr>';}).join('')+'</tbody></table></div>'; }
@@ -566,6 +566,22 @@ function visitHTML(){
   if(!S.visits.length) return '<p class="small muted">아직 메모가 없다.</p>';
   return '<div class="card">'+S.visits.map(function(v){return '<div class="chk'+(v.done?' done':'')+'"><input type="checkbox" data-act="visit-toggle" data-id="'+v.id+'"'+(v.done?' checked':'')+'><span class="t"><b>'+E(v.name)+'</b> · '+E(v.note)+'<br><span class="small muted">'+E(v.time)+'</span></span><button class="btn sm" data-act="visit-del" data-id="'+v.id+'" type="button">삭제</button></div>';}).join('')+'</div>';
 }
+/* 공통 막힘 Top 3: 서버가 있으면 오늘 질문 집계, 없으면 강사가 미리 적어 둔 예측을 보여 준다 */
+function commonBox(st){
+  return '<h3>공통 막힘 Top 3</h3><div id="commonTop" data-step="'+st.id+'"><ol>'+st.predicted.slice(0,3).map(function(p){return '<li><b>'+E(p.w)+'</b><br><span class="muted">'+E(p.s)+'</span></li>';}).join('')+'</ol></div>'+
+    '<p class="small muted" id="commonSrc">예측 (질문 집계 전)</p><button class="btn sm noprint" data-act="common-refresh" type="button">새로고침</button>';
+}
+function commonLoad(id){
+  var box=document.getElementById('commonTop'), src=document.getElementById('commonSrc'), base=botBase();
+  if(!box||base===null) return;
+  botFetch('/api/common?step='+encodeURIComponent(id),{base:base,method:'GET'},3000).then(function(d){
+    if(!box.isConnected||!d.ok) return;
+    var rows=(d.top||[]).map(function(t){ var sy=SYMPTOMS.filter(function(x){return x.id===t.id;})[0]; return sy?{sy:sy,people:t.people}:null; }).filter(Boolean);
+    if(!rows.length){ src.textContent='예측 (아직 '+d.min_people+'명 이상 겹친 질문이 없다)'; return; }
+    box.innerHTML='<ol>'+rows.map(function(r){ return '<li><b>'+E(r.sy.title)+'</b> <span class="muted">('+r.people+'명)</span><br><span class="muted">'+E(r.sy.fix[0]||'')+'</span></li>'; }).join('')+'</ol>';
+    src.textContent='질문 집계 (오늘, '+d.min_people+'명 이상 겹친 증상)';
+  }, function(){});
+}
 function viewProject(id){
   var h='<div class="proj">';
   h+='<div class="row noprint" style="margin-bottom:.6rem"><a class="btn" href="#/instructor">← 강사 화면</a>'+(id!=='signals'?'<a class="btn" href="#/project/'+(prevOf(id)||'signals')+'">이전</a><a class="btn" href="#/project/'+(nextOf(id)||'signals')+'">다음</a>':'')+'<button class="btn" data-act="print" type="button">인쇄</button></div>';
@@ -575,7 +591,7 @@ function viewProject(id){
   }
   var st=STEP_BY[id]; if(!st) return '<h1>없는 단계</h1>';
   h+='<h1>단계 '+id+'. '+E(st.title)+'</h1><div class="card">'+mapSVG(id)+'</div><div class="callout key"><b>목표</b> '+E(st.goal)+'</div>';
-  h+='<div class="grid2"><div class="card"><h3>확인 기준</h3><ul>'+st.expected.map(function(x){return '<li>'+E(x)+'</li>';}).join('')+'</ul></div><div class="card"><h3>공통 막힘 Top 3</h3><ol>'+st.predicted.slice(0,3).map(function(p){return '<li><b>'+E(p.w)+'</b><br><span class="muted">'+E(p.s)+'</span></li>';}).join('')+'</ol></div></div>';
+  h+='<div class="grid2"><div class="card"><h3>확인 기준</h3><ul>'+st.expected.map(function(x){return '<li>'+E(x)+'</li>';}).join('')+'</ul></div><div class="card">'+commonBox(st)+'</div></div>';
   if(st.run) h+=codeBlock(st.run);
   return h+'</div>';
 }
@@ -602,6 +618,7 @@ function render(){
   $$('#side a').forEach(function(a){ var k=a.getAttribute('data-nav'); a.classList.toggle('on', k===(name+(arg&&name!=='home'?'/'+arg:''))||(k===name)); a.classList.toggle('cur', k==='step/'+S.lastStep); });
   $('#side').classList.remove('open');
   document.title=META.title;
+  if(name==='project' && STEP_BY[arg]) commonLoad(arg);
   refreshProgress();
   var mini=$$('[data-bar-mini]'); mini.forEach(function(el){ var p=el.getAttribute('data-bar-mini')==='pw'?pwProg():stProg(); el.textContent=p.d+'/'+p.t; });
   if(location.hash.indexOf('#s-')===0){ var t=document.getElementById(location.hash.slice(1)); if(t) t.scrollIntoView(); } else window.scrollTo({top:0,behavior:'instant'});
@@ -683,6 +700,7 @@ document.addEventListener('click', function(e){
   else if(act==='help-red'){ setStatus('help'); toast('상태를 도움 필요로 바꿨다'); }
   else if(act==='help-big'){ openBigCard(); }
   else if(act==='print'){ window.print(); }
+  else if(act==='common-refresh'){ var cb=$('#commonTop'); if(cb) commonLoad(cb.getAttribute('data-step')); }
   else if(act==='export-md'){ download('설계시트_'+(S.name||'내이름')+'.md', designMD(), 'text/markdown;charset=utf-8'); }
   else if(act==='export-json'){ download('agentic-lms-backup.json', JSON.stringify(S,null,1), 'application/json'); }
   else if(act==='reset-all'){ if(window.confirm('이 브라우저에 저장된 내 기록을 모두 지운다. 계속할까?')){ S=defaults(); saveNow(); updateBand(); render(); } }

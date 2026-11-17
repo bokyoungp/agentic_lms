@@ -47,7 +47,7 @@ STEPS.push({
   precheck:['LLM에게 말투와 역할을 알려 주려면 어디에 써야 할까?','같은 모델인데 질문을 두 번 하면 앞 대화를 기억할까?'],
   concept:[
     {t:'p', h:'호출은 세 가지 요소로 구성된다. 시스템 지시는 사용자가 보지 못하는 \'근무 수칙\'이다.'},
-    {t:'table', head:['요소','역할'], rows:[['모델','사용할 Gemini 모델 (.env의 GEMINI_MODEL)'],['시스템 지시','역할, 말투, 모를 때의 행동'],['contents','지금까지 쌓인 대화 이력']]},
+    {t:'table', head:['요소','역할'], rows:[['모델','사용할 Gemini 모델 (.env의 '+LLM.gemini.model+'). OpenAI를 쓰면 '+LLM.openai.model+'이다'],['시스템 지시','역할, 말투, 모를 때의 행동'],['contents','지금까지 쌓인 대화 이력']]},
     {t:'code', c:'response = client.models.generate_content(\n    model=config.MODEL,\n    contents=history,\n    config=types.GenerateContentConfig(system_instruction=SYSTEM),\n)\nprint(response.text)'},
     {t:'table', head:['호출','내가 보내는 contents','모델이 아는 것'], rows:[['1번째','사용자: \'러닝용 운동화를 찾고 있어요.\'','이 문장만'],['2번째 (history 없이)','사용자: \'그럼 쿠션이 중요할까요?\'','\'그럼\'이 무엇인지 모른다'],['2번째 (history 포함)','사용자 → 모델 → 사용자 (3개 메시지)','앞 대화 전체']]},
     {t:'table', head:['문장으로 받으면','JSON으로 받으면'], rows:[['\'주문 상태를 조회하시려는 것 같아요.\' → 코드가 읽으려면 한 번 더 해석해야 한다','{"intent": "order_status", "keywords": ["ORD-1001"]} → parsed.intent로 바로 분기한다']]},
@@ -100,6 +100,8 @@ STEPS.push({
       ['3','내 코드','제안받은 인자로 실제 파이썬 함수를 실행한다 (모델은 이 과정을 볼 수 없다)'],
       ['4','내 코드','실행 결과를 function_response로 모델에 다시 전달한다'],
       ['5','모델','결과를 바탕으로 고객에게 보낼 최종 답을 쓴다']]},
+    {t:'table', head:['개념','Gemini (이 단계의 코드)','OpenAI를 쓰는 경우'], rows:[['모델의 호출 제안','function_call','tool_calls'],['결과를 돌려주는 메시지','function_response (role="user")','role="tool" 메시지 (tool_call_id 포함)'],['함수 선언','function_declarations','tools (type="function")']]},
+    {t:'callout', k:'warn', h:'흐름은 두 제공자가 같고 이름과 메시지 모양만 다르다. 이 단계의 starter 코드는 Gemini 기준이며, OpenAI용 코드가 핸즈온에 있는지는 확인이 필요하다.'},
     {t:'table', head:['선언의 칸','모델이 이걸로 판단한다','승승장구몰 예시'], rows:[['name','어떤 함수인지','search_products'],['description','언제 쓰고 언제 쓰지 않는지','상품 추천·가격 비교에 쓴다. 주문 조회에는 쓰지 않는다'],['parameters','어떤 인자를 어떤 모양으로 채울지','max_price는 정수, 10만 원이면 100000'],['각 인자의 description','값을 어떻게 바꿔 넣을지','\'가격 상한(원). 없으면 0\'']]},
     {t:'table', head:['','수동 방식 (먼저)','자동 방식 (그다음)'], rows:[['누가 함수를 실행하나','내 코드','SDK가 대신'],['코드에서 보이는 것','제안·실행·반환 3단계','tools=[search_products] 한 줄'],['언제 쓰나','과정을 보고 싶을 때, 승인·검증이 필요할 때','단순한 도구 호출'],['주의할 점','history 쌓기를 직접 해야 한다','기본으로 켜져 있어 의도치 않게 실행될 수 있다']]}
   ],

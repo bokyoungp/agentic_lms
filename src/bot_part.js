@@ -29,6 +29,7 @@ function botInit(){
   $('#botQ').addEventListener('keydown', function(e){ if(e.key==='Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); botSend(); } });
   $('#botUrl').value=S.bot.url||'';
   box.addEventListener('click', botClick); fab.addEventListener('click', function(){ BOT.open?botClose():botOpen(); });
+  setInterval(botPoll, 20000);
 }
 function botChips(){
   var step=STEP_BY[S.lastStep];
@@ -42,7 +43,7 @@ function botCtxText(){
   return '단계 '+S.lastStep+' · 확인 '+p.d+'/'+p.t+' · 연 힌트 '+n+'개'+(S.stuckSince?' · 막힌 지 '+stuckMin()+'분':'');
 }
 function botOpen(){
-  BOT.open=true; $('#bot').hidden=false; $('#botFab').classList.add('on'); botChips(); $('#botCtx').textContent=botCtxText(); botRender(); botHealth();
+  BOT.open=true; $('#bot').hidden=false; $('#botFab').classList.add('on'); $('#botFab').textContent='AI 도우미'; botPoll(); botChips(); $('#botCtx').textContent=botCtxText(); botRender(); botHealth();
   setTimeout(function(){ var q=$('#botQ'); if(q) q.focus(); }, 50);
 }
 function botClose(){ BOT.open=false; $('#bot').hidden=true; $('#botFab').classList.remove('on'); }
@@ -59,10 +60,14 @@ function botMsgHTML(m, i){
   if(m.r==='u'){
     return '<div class="bu"><div class="bb">'+E(m.t).replace(/\n/g,'<br>')+(m.tried?'<div class="small" style="opacity:.85;margin-top:.3rem">해 본 것: '+E(m.tried).replace(/\n/g,'<br>')+'</div>':'')+'</div></div>';
   }
+  if(m.teacher){
+    return '<div class="ba"><div class="bb teacher"><b>강사 답변</b><br>'+E(m.t).replace(/\n/g,'<br>')+'</div><div class="small muted bmeta">강사가 확인해 고쳐서 전달한 답이다'+(m.q?' · 질문: '+E(m.q.slice(0,40)):'')+'</div></div>';
+  }
   var t=E(m.t).replace(/\n/g,'<br>'), ids=[];
   t=t.replace(/\[([A-Za-z0-9_]+)\]/g, function(all,id){ var sy=SYMPTOMS.filter(function(x){return x.id===id;})[0]; if(!sy) return all; if(ids.indexOf(id)<0) ids.push(id); return '<button type="button" class="sym" data-bot="sym" data-id="'+id+'" title="'+E(sy.title)+'">'+id+'</button>'; });
   var h='<div class="ba"><div class="bb'+(m.err?' err':'')+'">'+t;
   if(m.fallback && m.fallback.length) h+='<div class="small" style="margin-top:.4rem"><b>가이드에서 찾은 증상</b> (서버 없이 검색한 결과)</div>'+m.fallback.map(function(id){ var sy=SYMPTOMS.filter(function(x){return x.id===id;})[0]; return sy?symHTML(sy,[],false):''; }).join('');
+  if(m.review) h+='<div class="small review-note"><b>강사 검토 전 답변이다</b> (사유: '+E(m.review.labels.join(', '))+'). 강사가 확인해 고쳐서 보내면 이 창에 \'강사 답변\'으로 도착한다. 그동안 위 안내를 먼저 해 본다.</div>';
   h+='</div>';
   if(m.trace && m.trace.length){
     h+='<details class="trace"><summary>에이전트 동작 보기 (도구 '+m.trace.length+'회)</summary><ol>'+m.trace.map(function(x){ var a=''; try{ a=JSON.stringify(x.args); }catch(e){} return '<li><code>'+E(x.tool)+'</code> <span class="muted small">'+E(a.length>80?a.slice(0,80)+'...':a)+'</span><br><span class="small">'+E(x.summary)+'</span></li>'; }).join('')+'</ol><p class="small muted">판단(LLM) -> 도구(코드) -> 관찰을 반복한 기록이다. 힌트 공개 여부는 코드가 검사한다.</p></details>';
@@ -95,9 +100,27 @@ function botSend(){
   }
   if(base===null){ offline('서버 주소가 설정되지 않았다.'); return; }
   botFetch('/api/chat',{base:base, method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}, 70000).then(function(d){
-    if(d && d.ok){ botPush({r:'a', t:d.text, trace:d.trace||[], provider:d.provider, mode_label:d.mode_label, masked:d.masked}); BOT.busy=false; botRender(); }
+    if(d && d.ok){
+      botPush({r:'a', t:d.text, trace:d.trace||[], provider:d.provider, mode_label:d.mode_label, masked:d.masked, review:d.review||null});
+      if(d.review){ S.bot.pend=(S.bot.pend||[]).concat(d.review.id).slice(-10); saveNow(); }
+      BOT.busy=false; botRender();
+    }
     else offline((d&&d.msg)?d.msg+'.':'답을 받지 못했다.');
   }, function(){ BOT.online=false; $('#botSt').textContent='서버에 연결할 수 없다 · 정적 검색만 사용'; offline('서버에 연결하지 못했다.'); });
+}
+/* 강사 답변 확인: 검토 중인 질문이 있을 때만 20초마다 서버에 묻는다. 서버가 없거나 실패하면 조용히 넘어간다 */
+function botPoll(){
+  var base=botBase(); S.bot.pend=S.bot.pend||[]; S.bot.seen=S.bot.seen||[];
+  if(base===null||!S.bot.pend.length) return;
+  botFetch('/api/inbox?cid='+encodeURIComponent(botCid()),{base:base,method:'GET'},4000).then(function(d){
+    if(!d||!d.ok) return; var got=0;
+    d.items.forEach(function(it){
+      var key=it.id+'@'+it.ts; if(S.bot.seen.indexOf(key)>=0) return;
+      S.bot.seen.push(key); S.bot.pend=S.bot.pend.filter(function(x){return x!==it.id;});
+      botPush({r:'a', t:it.text, teacher:true, q:it.q}); got++;
+    });
+    if(got){ S.bot.seen=S.bot.seen.slice(-30); saveNow(); botRender(); if(!BOT.open){ var f=$('#botFab'); if(f) f.textContent='AI 도우미 · 강사 답변 도착'; } }
+  }, function(){});
 }
 function botClick(e){
   var t=e.target.closest('[data-bot]'); if(!t) return; var a=t.getAttribute('data-bot');

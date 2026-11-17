@@ -1,4 +1,5 @@
 import json, os, subprocess, sys, time
+import urllib.request as ur
 import os, pathlib, tempfile
 ROOT = str(pathlib.Path(__file__).resolve().parent.parent)
 SERVER = ROOT + '/server'
@@ -14,6 +15,7 @@ from playwright.sync_api import sync_playwright
 json.dump({'provider':'mock'},open(DATA+'/bot_config.json','w'))
 env=dict(os.environ,BOT_DATA_DIR=DATA,BOT_PORT='8798',ADMIN_TOKEN='tok')
 srv=subprocess.Popen([sys.executable,SERVER+'/bot_server.py'],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); time.sleep(1)
+__import__('atexit').register(srv.terminate)   # 시험이 중간에 실패해도 서버가 남아 다음 실행을 방해하지 않게 한다
 res=[]
 def ok(c,m): print(('PASS ' if c else 'FAIL ')+m)
 errs=[]
@@ -50,6 +52,18 @@ with sync_playwright() as p:
     # 새로고침 후 대화 유지
     pg.reload(); pg.wait_for_selector('#botFab'); pg.click('#botFab'); pg.wait_for_timeout(300)
     ok(pg.locator('#botMsgs .bu').count()==2,'새로고침 후 대화 유지')
+    # 강사 검토함: 환경 문제 증상이 걸린 첫 답은 '검토 전'으로 표시되고, 강사가 전달하면 '강사 답변'으로 도착한다
+    ok('강사 검토 전 답변이다' in pg.inner_text('#botMsgs'),'검토 대상 답변에 검토 전 표시')
+    def adm(m,p,b=None):
+        rq=ur.Request('http://127.0.0.1:8798'+p,data=json.dumps(b).encode() if b is not None else None,headers={'X-Admin-Token':'tok','Content-Type':'application/json'},method=m)
+        return json.loads(ur.urlopen(rq,timeout=15).read())
+    drafts=adm('GET','/api/admin/review?status=draft')['items']
+    ok(len(drafts)>=1 and drafts[0]['status']=='draft','검토함에 초안이 쌓인다: '+str(len(drafts))+'건')
+    adm('POST','/api/admin/review/deliver',{'id':drafts[0]['id'],'text':'강사가 확인했다. .env 파일 이름부터 다시 본다.'})
+    pg.click('[data-bot=close]'); pg.click('#botFab'); pg.wait_for_selector('#botMsgs .bb.teacher',timeout=8000)   # 패널을 열 때 강사 답변을 확인한다
+    ok('강사 답변' in pg.inner_text('#botMsgs .bb.teacher') and '.env 파일 이름' in pg.inner_text('#botMsgs .bb.teacher'),'수강자 패널에 강사 답변 도착')
+    pg.click('[data-bot=close]'); pg.click('#botFab'); pg.wait_for_timeout(500)
+    ok(pg.locator('#botMsgs .bb.teacher').count()==1,'같은 강사 답변은 중복 표시하지 않는다')
     pg.screenshot(path=''+SHOTS+'/bot_open.png')
     # file:// + 주소 없음 -> 정적 대체
     pg2=ctx.new_page(); pg2.on('pageerror',lambda e: errs.append(str(e)))
@@ -61,10 +75,16 @@ with sync_playwright() as p:
     ok('연결됨' in pg2.inner_text('#botSt'),'file:// -> 서버 주소 연결: '+pg2.inner_text('#botSt'))
     pg2.fill('#botQ','ImportError create_agent'); pg2.click('#botSend'); pg2.wait_for_function("document.querySelectorAll('#botMsgs .ba').length>=2",timeout=8000); pg2.wait_for_timeout(300)
     ok('모의 응답' in pg2.inner_text('#botMsgs'),'file:// 에서 에이전트 응답 수신')
+    # 투사 화면: 단계 03에서 서로 다른 두 수강자가 같은 증상을 물으면 예측 대신 질문 집계를 보여 준다
+    import urllib.request as ur
+    ur.urlopen(ur.Request('http://127.0.0.1:8798/api/chat',data=json.dumps({'cid':'other','step':'03','q':'API key not valid 오류가 나요'}).encode(),headers={'Content-Type':'application/json'}),timeout=15).read()
+    pg2.goto('file://'+GUIDE+'#/project/03'); pg2.reload(); pg2.wait_for_function("document.getElementById('commonSrc') && document.getElementById('commonSrc').textContent.indexOf('질문 집계')===0",timeout=8000)
+    ok('2명' in pg2.inner_text('#commonTop'),'투사 화면 Top 3: 질문 집계 표시 '+pg2.inner_text('#commonTop').replace('\n',' ')[:400])
+    pg2.click('#botFab'); pg2.wait_for_timeout(300)   # 새로고침으로 닫힌 도우미 패널을 다시 연다
     # 서버 중단 -> 대체
     srv.terminate(); time.sleep(0.5)
     pg2.fill('#botQ','404 not found'); pg2.click('#botSend'); pg2.wait_for_function("document.querySelectorAll('#botMsgs .ba').length>=3",timeout=8000); pg2.wait_for_timeout(300)
-    ok('연결하지 못했다' in pg2.inner_text('#botMsgs'),'서버 중단 시 대체 안내')
+    ok('연결하지 못했다' in pg2.inner_text('#botMsgs'),'서버 중단 시 대체 안내 '+pg2.inner_text('#botMsgs').replace('\n',' ')[-200:])
     # 좁은 화면
     pg2.set_viewport_size({'width':560,'height':800}); pg2.wait_for_timeout(200); pg2.screenshot(path=''+SHOTS+'/bot_narrow.png')
     ov=pg2.evaluate("document.documentElement.scrollWidth>window.innerWidth"); ok(not ov,'좁은 화면 가로 넘침 없음')

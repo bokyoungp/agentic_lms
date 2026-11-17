@@ -87,6 +87,10 @@ with sync_playwright() as p:
     pg.goto(URL+'#/step/03'); log('persist hint:', pg.inner_text('#todo-03-TODO_1 summary')[-10:], '| quiz why kept:', 'why' in pg.inner_html('#q-03-0'))
     # instructor visits
     pg.goto(URL+'#/instructor'); pg.fill('#vName','A-3'); pg.fill('#vNote','04 400'); pg.click('[data-act=visit-add]'); log('visit:', pg.inner_text('#visitList')[:30].replace('\n',' '))
+    # 투사 화면: 서버가 없으면 예측을 보여 주고 출처를 표시한다
+    pg.goto(URL+'#/project/03'); pg.wait_for_selector('#commonTop li')
+    n_pred=pg.locator('#commonTop li').count(); src=pg.inner_text('#commonSrc')
+    log(('FAIL ' if not (n_pred==3 and src.startswith('예측')) else 'ok ')+'common fallback:', src, '| items:', n_pred)
     # screenshots
     for r,name in [('home','home'),('step/04','step04'),('fix','fix'),('help','help'),('design','design'),('project/08','proj08')]:
         pg.goto(URL+'#/'+r); pg.wait_for_timeout(150); pg.screenshot(path=''+SHOTS+'/%s.png'%name, full_page=False)
